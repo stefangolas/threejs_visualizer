@@ -1,0 +1,21 @@
+{
+  "name": "deckeditor",
+  "version": "1.0.0",
+  "description": "Editor for robot decks",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "install": "^0.13.0",
+    "npm": "^10.5.0",
+    "three": "^0.162.0",
+    "three-dragcontrols": "^0.88.2",
+    "three-orbitcontrols": "^2.110.3"
+  },
+  "devDependencies": {
+    "vite": "^5.1.4"
+  }
+}
