@@ -188,6 +188,31 @@ function checkIntersectionAndSnap(draggableObj) {
         // Apply offset to draggable object's world position
         draggableObj.parent.position.add(worldOffset);
         
+        // If this is a plate snapping to a carrier target, store the carrier reference
+        if (resourceType === "plate" && closestTarget.target.parent && 
+            closestTarget.target.parent.parent && 
+            closestTarget.target.parent.parent.userData.resource_type === "carrier") {
+            
+            // Get the carrier object (parent of the target)
+            const carrier = closestTarget.target.parent.parent;
+            
+            // Store the carrier reference and target on the plate
+            draggableObj.parent.userData.attachedToCarrier = carrier;
+            draggableObj.parent.userData.attachedToTarget = closestTarget.target;
+            
+            // Calculate and store the offset between the plate and the target
+            const targetWorldPos = new THREE.Vector3();
+            closestTarget.target.getWorldPosition(targetWorldPos);
+            
+            const plateWorldPos = new THREE.Vector3();
+            draggableObj.parent.getWorldPosition(plateWorldPos);
+            
+            // Store the initial offset
+            draggableObj.parent.userData.targetOffset = new THREE.Vector3().subVectors(plateWorldPos, targetWorldPos);
+            
+            console.log("Plate attached to carrier");
+        }
+        
         // Log the snap for debugging
         console.log(`Snapped ${resourceType} to target. Distance: ${closestTarget.distance.toFixed(4)}`);
         console.log(`Target center: (${closestTarget.center.x.toFixed(3)}, ${closestTarget.center.y.toFixed(3)}, ${closestTarget.center.z.toFixed(3)})`);
@@ -209,6 +234,18 @@ function checkNonIntersectionAndDetach(draggableObj) {
         
         // If no longer intersecting, clear the snap target reference
         if (!draggableBox.intersectsBox(targetBox)) {
+            // If this is a plate attached to a carrier, clear the references
+            if (draggableObj.parent.userData.resource_type === "plate" && 
+                draggableObj.parent.userData.attachedToCarrier) {
+                
+                // Clear the carrier and target references
+                draggableObj.parent.userData.attachedToCarrier = null;
+                draggableObj.parent.userData.attachedToTarget = null;
+                draggableObj.parent.userData.targetOffset = null;
+                
+                console.log("Plate detached from carrier");
+            }
+            
             draggableObj.parent.userData.snapTarget = null;
             console.log("Detached from snap target");
         }
@@ -240,6 +277,7 @@ function setupDragControls(dragControls) {
     dragControls.addEventListener('dragend', function (event) {
         controls.enabled = true;
         event.object.material.opacity = 1.0; // Restore opacity after dragging
+        
         checkNonIntersectionAndDetach(event.object);
         checkIntersectionAndSnap(event.object);
     });
@@ -375,10 +413,10 @@ for (let i = 0; i < numberOfInstances; i++) {
     objLoader2.load('models/plate.obj', (object) => {
         object.scale.set(2, 2, 2);
 
-        // Set color to a dark gray
+        // Set color to salmon
         object.traverse((child) => {
             if (child instanceof THREE.Mesh) {
-                child.material.color.set(0x535353); // Dark gray color
+                child.material.color.set(0xFA8072); // Salmon color
                 // Uncomment below to set bounding box if createBoundingBox function is defined
                 // child.userData.boundingBox = createBoundingBox(child);
             }
@@ -497,6 +535,27 @@ const animate = () => {
     if (!isDraggingObject) {
         controls.update();
     }
+    
+    // Update positions of plates attached to carriers
+    scene.children.forEach(obj => {
+        if (obj.userData.resource_type === "plate" && 
+            obj.userData.attachedToCarrier && 
+            obj.userData.attachedToTarget) {
+            
+            // Get the world position of the target
+            const targetWorldPos = new THREE.Vector3();
+            obj.userData.attachedToTarget.getWorldPosition(targetWorldPos);
+            
+            // If there's a stored offset, apply it
+            if (obj.userData.targetOffset) {
+                obj.position.copy(targetWorldPos).add(obj.userData.targetOffset);
+            } else {
+                // Otherwise just match the target position
+                obj.position.copy(targetWorldPos);
+            }
+        }
+    });
+    
     updateBoundingBoxes();
     updatePositionReadouts();
 
