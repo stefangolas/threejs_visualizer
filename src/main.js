@@ -65,12 +65,27 @@ function updatePositionReadouts() {
 }
 
 // Create lights
-const ambientLight = new THREE.AmbientLight(0xfcfcfc);
+const ambientLight = new THREE.AmbientLight(0x404040, 0.5); // Reduced intensity for better contrast
 scene.add(ambientLight);
 
-const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0); // Increased intensity
 directionalLight.position.set(1, 1, 1).normalize();
 scene.add(directionalLight);
+
+// Add a second directional light from another angle for better highlights
+const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.7);
+directionalLight2.position.set(-1, 0.5, -1).normalize();
+scene.add(directionalLight2);
+
+// Add a point light for more dynamic lighting
+const pointLight = new THREE.PointLight(0xffffff, 0.5);
+pointLight.position.set(0, 5, 0);
+scene.add(pointLight);
+
+// Enable shadows
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+directionalLight.castShadow = true;
 
 // Create an array to hold draggable objects
 const draggableObjects = [];
@@ -347,18 +362,68 @@ const dimensionsVector = new THREE.Vector3(127 * 0.002, 5 * 0.002, 86 * 0.002);
 // Translation vector from the FBL corner
 const translationVector = new THREE.Vector3(4 * 0.002, 86.15 * 0.002, -8.5 * 0.002 - 86 * 0.002);
 
-const shiny_material = new THREE.MeshPhongMaterial({ 
-    color: 0x535353,
-    specular: 0x050505,
-    shininess: 100,
+// Material definitions for different surface types
+const metalMaterial = new THREE.MeshStandardMaterial({ 
+    color: 0x888888,
+    metalness: 0.9,
+    roughness: 0.2,
+    envMapIntensity: 1.0
 });
+
+const shinyPlasticMaterial = new THREE.MeshStandardMaterial({ 
+    color: 0x535353,
+    metalness: 0.1,
+    roughness: 0.2,
+    clearcoat: 0.8,
+    clearcoatRoughness: 0.2
+});
+
+const mattePlasticMaterial = new THREE.MeshStandardMaterial({ 
+    color: 0x535353,
+    metalness: 0.0,
+    roughness: 0.9
+});
+
+const glassMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff,
+    metalness: 0.0,
+    roughness: 0.0,
+    transmission: 0.9,
+    transparent: true,
+    opacity: 0.3
+});
+
+// Create a simple environment map for reflections
+const envMapSize = 256;
+const envMapRenderTarget = new THREE.WebGLCubeRenderTarget(envMapSize);
+const envMapCamera = new THREE.CubeCamera(0.1, 1000, envMapRenderTarget);
+scene.add(envMapCamera);
+
+// Create a simple scene for the environment map
+const envScene = new THREE.Scene();
+envScene.background = new THREE.Color(0x444444);
+
+// Add some simple objects to the environment scene for reflections
+const envSphereGeometry = new THREE.SphereGeometry(100, 16, 16);
+const envSphereMaterial = new THREE.MeshBasicMaterial({ color: 0x888888 });
+const envSphere = new THREE.Mesh(envSphereGeometry, envSphereMaterial);
+envScene.add(envSphere);
+
+// Update the environment map once
+envMapCamera.update(renderer, envScene);
+
+// Set the environment map for the scene
+scene.environment = envMapRenderTarget.texture;
 
 objLoader1.load('models/PLT_CAR_L5AC_A00.obj', (object) => {
     object.scale.set(2, 2, 2);
 
     object.traverse((child) => {
         if (child instanceof THREE.Mesh) {
-            child.material = shiny_material; // Muted salmon pink color
+            // Apply metal material to the carrier
+            child.material = metalMaterial;
+            child.castShadow = true;
+            child.receiveShadow = true;
         }
     });
 
@@ -409,16 +474,35 @@ objLoader1.load('models/PLT_CAR_L5AC_A00.obj', (object) => {
 const objLoader2 = new OBJLoader();
 const numberOfInstances = 5; // Define the number of instances you want to load
 
+// Create a plate material with a slight variation for each instance
+const createPlateMaterial = (index) => {
+    // Vary the color slightly for each plate
+    const hue = 0.05 + (index * 0.02); // Slight hue variation
+    const color = new THREE.Color().setHSL(hue, 0.8, 0.7);
+    
+    return new THREE.MeshPhysicalMaterial({ 
+        color: color,
+        metalness: 0.0,
+        roughness: 0.3,
+        clearcoat: 0.5,
+        clearcoatRoughness: 0.2,
+        transmission: 0.2,
+        transparent: true
+    });
+};
+
 for (let i = 0; i < numberOfInstances; i++) {
     objLoader2.load('models/plate.obj', (object) => {
         object.scale.set(2, 2, 2);
 
-        // Set color to salmon
+        // Apply custom material with slight variations
+        const plateMaterial = createPlateMaterial(i);
+        
         object.traverse((child) => {
             if (child instanceof THREE.Mesh) {
-                child.material.color.set(0xFA8072); // Salmon color
-                // Uncomment below to set bounding box if createBoundingBox function is defined
-                // child.userData.boundingBox = createBoundingBox(child);
+                child.material = plateMaterial;
+                child.castShadow = true;
+                child.receiveShadow = true;
             }
         });
 
@@ -440,75 +524,7 @@ for (let i = 0; i < numberOfInstances; i++) {
     });
 }
 
-const mtlLoader1 = new MTLLoader();
-mtlLoader1.load('models/gripper.mtl', (materials) => {
-    materials.preload();
-
-    const objLoader4 = new OBJLoader();
-    objLoader4.load('models/gripper.obj', (object) => {
-        object.scale.set(0.005, 0.005, 0.005);
-
-/*         object.traverse((child) => {
-            if (child instanceof THREE.Mesh) {
-                child.material.color.set(0x707065); // Muted salmon pink color
-            }
-        });
- */        object.rotation.y = 3*Math.PI / 2;
-
-        // Set the object to the draggable layer
-        setAsDraggable(object);
-
-        // Add the object to the scene
-        const dragControls1 = new DragControls(draggableObjectsArray, camera, renderer.domElement);
-        controls.recursive = false;
-
-        // For draggable functionality, ensure only the main object is draggable
-        //console.log(object)
-        // Setup drag controls
-        scene.add(object);
-        draggableObjectsArray.push(object);
-        //object.position.add(new THREE.Vector3(0, 0.1, 1));  // Translate the position by (0, -1, 0.1)
-        console.log("scene");
-        object.userData.boundingBox = createBoundingBox(object);
-        //visualizeBox3(object.userData.boundingBox)
-        //setupDragControls(dragControls1);
-    });
-});
-
-const mtlLoader4 = new MTLLoader();
-mtlLoader4.load('models/gripper.mtl', (materials) => {
-    materials.preload();
-
-    const objLoader4 = new OBJLoader();
-    objLoader4.load('models/transfer_station.obj', (object) => {
-        object.scale.set(0.004, 0.004, 0.004);
-
-/*         object.traverse((child) => {
-            if (child instanceof THREE.Mesh) {
-                child.material.color.set(0x707065); // Muted salmon pink color
-            }
-        });
- */        
-
-        // Set the object to the draggable layer
-        setAsDraggable(object);
-
-        // Add the object to the scene
-        const dragControls1 = new DragControls(draggableObjectsArray, camera, renderer.domElement);
-        controls.recursive = false;
-
-        // For draggable functionality, ensure only the main object is draggable
-        //console.log(object)
-        // Setup drag controls
-        scene.add(object);
-        draggableObjectsArray.push(object);
-        //object.position.add(new THREE.Vector3(0, 0.1, 1));  // Translate the position by (0, -1, 0.1)
-        console.log("scene");
-        object.userData.boundingBox = createBoundingBox(object);
-        //visualizeBox3(object.userData.boundingBox)
-        //setupDragControls(dragControls1);
-    });
-});
+// Gripper and transfer station removed as requested
 
 // Add OrbitControls
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -555,6 +571,11 @@ const animate = () => {
             }
         }
     });
+    
+    // Rotate the point light to create dynamic lighting effects
+    const time = Date.now() * 0.001;
+    pointLight.position.x = Math.sin(time) * 5;
+    pointLight.position.z = Math.cos(time) * 5;
     
     updateBoundingBoxes();
     updatePositionReadouts();
