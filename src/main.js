@@ -6,7 +6,9 @@ import { DragControls } from 'three/addons/controls/DragControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 
-
+// Set up layers
+const DRAGGABLE_LAYER = 0;
+const SNAP_TARGET_LAYER = 1;
 
 // Create scene
 const scene = new THREE.Scene();
@@ -17,11 +19,50 @@ camera.position.set(0, 5, 10);
 camera.lookAt(scene.position);
 scene.add(camera);
 
-
 // Create renderer
 const renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
+
+// Create a container for position readouts
+const readoutContainer = document.createElement('div');
+readoutContainer.style.position = 'absolute';
+readoutContainer.style.top = '10px';
+readoutContainer.style.left = '10px';
+readoutContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+readoutContainer.style.color = 'white';
+readoutContainer.style.padding = '10px';
+readoutContainer.style.fontFamily = 'monospace';
+readoutContainer.style.fontSize = '12px';
+readoutContainer.style.borderRadius = '5px';
+readoutContainer.style.maxHeight = '300px';
+readoutContainer.style.overflowY = 'auto';
+readoutContainer.style.zIndex = '1000';
+document.body.appendChild(readoutContainer);
+
+// Function to update position readouts
+function updatePositionReadouts() {
+    readoutContainer.innerHTML = '<h3>Position Readouts</h3>';
+    
+    // Add plate centers
+    readoutContainer.innerHTML += '<h4>Plate Centers:</h4>';
+    const plateObjects = scene.children.filter(obj => obj.userData.resource_type === "plate");
+    plateObjects.forEach((plate, index) => {
+        const box = new THREE.Box3().setFromObject(plate);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        readoutContainer.innerHTML += `Plate ${index}: (${center.x.toFixed(3)}, ${center.y.toFixed(3)}, ${center.z.toFixed(3)})<br>`;
+    });
+    
+    // Add snap target centers
+    readoutContainer.innerHTML += '<h4>Snap Target Centers:</h4>';
+    snapPlateTargetsArray.forEach((target, index) => {
+        const box = createBoundingBox(target);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        readoutContainer.innerHTML += `Target ${index}: (${center.x.toFixed(3)}, ${center.y.toFixed(3)}, ${center.z.toFixed(3)})<br>`;
+    });
+}
 
 // Create lights
 const ambientLight = new THREE.AmbientLight(0xfcfcfc);
@@ -30,7 +71,6 @@ scene.add(ambientLight);
 const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
 directionalLight.position.set(1, 1, 1).normalize();
 scene.add(directionalLight);
-
 
 // Create an array to hold draggable objects
 const draggableObjects = [];
@@ -45,6 +85,166 @@ const draggableObjects = [];
     return boundingBox;
 }
  */
+
+var draggableObjectsArray = [];
+var snapPlateTargetsArray = [];
+var snapCarrierTargetsArray = [];
+
+// Function to set an object to the draggable layer
+function setAsDraggable(object) {
+    object.traverse(child => {
+        child.layers.set(DRAGGABLE_LAYER);
+    });
+    object.layers.set(DRAGGABLE_LAYER);
+}
+
+// Function to set an object to the snap target layer
+function setAsSnapTarget(object) {
+    object.traverse(child => {
+        child.layers.set(SNAP_TARGET_LAYER);
+    });
+    object.layers.set(SNAP_TARGET_LAYER);
+}
+
+function updateBoundingBoxes() {
+    snapPlateTargetsArray.forEach(mesh => {
+        mesh.userData.boundingBox = createBoundingBox(mesh);
+    });
+}
+
+let isDraggingObject = false;
+
+// Create a box geometry with dimensions x = 127, y = 86, z = 20
+const boundingBoxGeometry = new THREE.BoxGeometry(127 * 0.004, 20 * 0.004, 86 * 0.004);
+
+const boundingBoxMaterial = new THREE.LineBasicMaterial({ color: 0xffffff }); // White color
+const box3 = new THREE.LineSegments(new THREE.EdgesGeometry(boundingBoxGeometry), boundingBoxMaterial);
+
+function createBoundingBox(mesh) {
+    const boundingBox = new THREE.Box3().setFromObject(mesh);
+    return boundingBox;
+}
+
+function checkIntersectionAndSnap(draggableObj) {
+    // Skip if this isn't a draggable object with a parent
+    if (!draggableObj.parent) return;
+    
+    // Get the resource type
+    const resourceType = draggableObj.parent.userData.resource_type;
+    if (!resourceType) return;
+    
+    // Create a bounding box for the draggable object
+    const draggableBox = new THREE.Box3().setFromObject(draggableObj.parent);
+    
+    // Find all intersecting targets
+    const intersectingTargets = [];
+    
+    // Choose the appropriate target array based on resource type
+    const targetArray = resourceType === "plate" ? snapPlateTargetsArray : 
+                        resourceType === "carrier" ? snapCarrierTargetsArray : [];
+    
+    // Find all intersecting targets and calculate distances
+    targetArray.forEach(target => {
+        // Get the target's world position by creating a bounding box
+        const targetBox = createBoundingBox(target);
+        
+        if (draggableBox.intersectsBox(targetBox)) {
+            // Calculate centers
+            const targetCenter = new THREE.Vector3();
+            const draggableCenter = new THREE.Vector3();
+            
+            targetBox.getCenter(targetCenter);
+            draggableBox.getCenter(draggableCenter);
+            
+            // Calculate distance between centers
+            const distance = targetCenter.distanceTo(draggableCenter);
+            
+            intersectingTargets.push({
+                target: target,
+                distance: distance,
+                center: targetCenter
+            });
+        }
+    });
+    
+    // If we found intersecting targets, snap to the closest one
+    if (intersectingTargets.length > 0) {
+        // Sort by distance (closest first)
+        intersectingTargets.sort((a, b) => a.distance - b.distance);
+        
+        // Get the closest target
+        const closestTarget = intersectingTargets[0];
+        
+        // Store reference to the snap target
+        draggableObj.parent.userData.snapTarget = closestTarget.target;
+        
+        // Get draggable center
+        const draggableCenter = new THREE.Vector3();
+        draggableBox.getCenter(draggableCenter);
+        
+        // Calculate precise world position difference
+        const worldOffset = new THREE.Vector3().subVectors(closestTarget.center, draggableCenter);
+        
+        // Apply offset to draggable object's world position
+        draggableObj.parent.position.add(worldOffset);
+        
+        // Log the snap for debugging
+        console.log(`Snapped ${resourceType} to target. Distance: ${closestTarget.distance.toFixed(4)}`);
+        console.log(`Target center: (${closestTarget.center.x.toFixed(3)}, ${closestTarget.center.y.toFixed(3)}, ${closestTarget.center.z.toFixed(3)})`);
+        console.log(`Object center before snap: (${draggableCenter.x.toFixed(3)}, ${draggableCenter.y.toFixed(3)}, ${draggableCenter.z.toFixed(3)})`);
+        
+        // Verify final position
+        const finalBox = new THREE.Box3().setFromObject(draggableObj.parent);
+        const finalCenter = new THREE.Vector3();
+        finalBox.getCenter(finalCenter);
+        console.log(`Object center after snap: (${finalCenter.x.toFixed(3)}, ${finalCenter.y.toFixed(3)}, ${finalCenter.z.toFixed(3)})`);
+    }
+}
+
+function checkNonIntersectionAndDetach(draggableObj) {
+    // If the object has a snap target, check if it's still intersecting
+    if (draggableObj.parent.userData.snapTarget) {
+        const draggableBox = new THREE.Box3().setFromObject(draggableObj);
+        const targetBox = createBoundingBox(draggableObj.parent.userData.snapTarget);
+        
+        // If no longer intersecting, clear the snap target reference
+        if (!draggableBox.intersectsBox(targetBox)) {
+            draggableObj.parent.userData.snapTarget = null;
+            console.log("Detached from snap target");
+        }
+    }
+}
+
+function setupDragControls(dragControls) {
+    // Only allow dragging objects on the draggable layer
+    dragControls.addEventListener('hoveron', function(event) {
+        // Check if the object is in a snap target array or on the snap target layer
+        if (event.object.layers.test(new THREE.Layers().set(SNAP_TARGET_LAYER)) ||
+            snapPlateTargetsArray.includes(event.object) || 
+            snapCarrierTargetsArray.includes(event.object)) {
+            // Prevent dragging by setting the enabled property temporarily
+            dragControls.enabled = false;
+        }
+    });
+
+    dragControls.addEventListener('hoveroff', function() {
+        // Re-enable drag controls
+        dragControls.enabled = true;
+    });
+
+    dragControls.addEventListener('dragstart', function (event) {
+        controls.enabled = false;
+        event.object.material.opacity = 0.5; // Optional: make the object semi-transparent when dragging
+    });
+
+    dragControls.addEventListener('dragend', function (event) {
+        controls.enabled = true;
+        event.object.material.opacity = 1.0; // Restore opacity after dragging
+        checkNonIntersectionAndDetach(event.object);
+        checkIntersectionAndSnap(event.object);
+    });
+}
+
 // Load MTL file
 const mtlLoader = new MTLLoader();
 mtlLoader.load('models/deck3.mtl', (materials) => {
@@ -56,6 +256,9 @@ mtlLoader.load('models/deck3.mtl', (materials) => {
     objLoader.load('models/deck3.obj', (object) => {
         object.scale.set(2, 2, 2); // Scale the model uniformly
         object.rotation.y = Math.PI;
+
+        // Set the object to the draggable layer
+        setAsDraggable(object);
 
         scene.add(object);
         draggableObjects.push(object);
@@ -86,125 +289,15 @@ mtlLoader.load('models/deck3.mtl', (materials) => {
             wireframeBox.position.z = boundingBox.getCenter(new THREE.Vector3()).z;
             wireframeBox.position.y = boundingBox.getCenter(new THREE.Vector3()).y + size.y / 2 + 95 * 0.002;
             wireframeBox.position.x = boundingBox.max.x + heightPerBox * (i + 0.5) - size.x;
-            //console.log(wireframeBox.position.y)
-            snapCarrierTargetsArray.push(wireframeBox)
+            
+            // Set the wireframe box to the snap target layer
+            setAsSnapTarget(wireframeBox);
+            
+            snapCarrierTargetsArray.push(wireframeBox);
             scene.add(wireframeBox);
         }
     });
 });
-
-
-var draggableObjectsArray = [];
-var snapPlateTargetsArray = [];
-var snapCarrierTargetsArray = [];
-
-
-function updateBoundingBoxes() {
-    snapPlateTargetsArray.forEach(mesh => {
-        mesh.userData.boundingBox = createBoundingBox(mesh);
-    });
-}
-
-
-let isDraggingObject = false;
-
-// Create a box geometry with dimensions x = 127, y = 86, z = 20
-const boundingBoxGeometry = new THREE.BoxGeometry(127 * 0.004, 20 * 0.004, 86 * 0.004);
-
-const boundingBoxMaterial = new THREE.LineBasicMaterial({ color: 0xffffff }); // White color
-const box3 = new THREE.LineSegments(new THREE.EdgesGeometry(boundingBoxGeometry), boundingBoxMaterial);
-
-
-function createBoundingBox(mesh) {
-    const boundingBox = new THREE.Box3().setFromObject(mesh);
-    return boundingBox;
-}
-
-function checkIntersectionAndSnap(draggableObj) {
-    const draggableBox = new THREE.Box3().setFromObject(draggableObj);
-    console.log("Draggable")
-    //console.log(draggableObj)
-
-    snapPlateTargetsArray.forEach(target => {
-        const targetBox = createBoundingBox(target)
-        if (draggableBox.intersectsBox(targetBox) & draggableObj.parent.userData.resource_type == "plate") {
-            //visualizeBox3(targetBox)
-            target.attach(draggableObj.parent)
-            draggableBox.visible = true;
-            console.log("target")
-            //console.log(target)
-
-            const targetCenter = new THREE.Vector3();
-            const draggableCenter = new THREE.Vector3();
-
-            targetBox.getCenter(targetCenter);
-            draggableBox.getCenter(draggableCenter);
-
-            const offset = new THREE.Vector3().subVectors(targetCenter, draggableCenter);
-            offset.divideScalar(2)
-            draggableObj.position.add(offset);
-
-
-        }
-
-
-    });
-
-    snapCarrierTargetsArray.forEach(target => {
-        const targetBox = createBoundingBox(target)
-        if (draggableBox.intersectsBox(targetBox) & draggableObj.parent.userData.resource_type == "carrier") {
-            //visualizeBox3(targetBox)
-            target.attach(draggableObj.parent)
-            draggableBox.visible = true;
-            //console.log("target")
-            //console.log(target)
-
-            const targetCenter = new THREE.Vector3();
-            const draggableCenter = new THREE.Vector3();
-
-            //console.log("Position update")
-            targetBox.getCenter(targetCenter);
-            draggableBox.getCenter(draggableCenter);
-            //console.log(draggableObj.position)
-            const offset = new THREE.Vector3().subVectors(targetCenter, draggableCenter);
-            offset.divideScalar(2)
-            draggableObj.position.add(offset);
-            //console.log(draggableObj.position)
-
-
-        }
-
-
-    });
-
-}
-
-function checkNonIntersectionAndDetach(draggableObj) {
-    const parent = draggableObj.parent.parent;
-    // Check if draggableObj is still intersecting with its parent
-    if (snapPlateTargetsArray.includes(parent) || snapCarrierTargetsArray.includes(parent)) {
-        scene.attach(draggableObj.parent)
-        draggableObjectsArray.push(draggableObj)
-    }
-}
-
-
-function setupDragControls(dragControls) {
-    dragControls.addEventListener('dragstart', function (event) {
-        controls.enabled = false;
-        event.object.material.opacity = 0.5; // Optional: make the object semi-transparent when dragging
-
-    });
-
-    dragControls.addEventListener('dragend', function (event) {
-        controls.enabled = true;
-        event.object.material.opacity = 1.0; // Restore opacity after dragging
-        checkNonIntersectionAndDetach(event.object);
-        checkIntersectionAndSnap(event.object);
-
-    });
-}
-
 
 const objLoader1 = new OBJLoader();
 //const axesHelper = new THREE.AxesHelper(5); // The size can be adjusted to fit your scene scale
@@ -216,12 +309,11 @@ const dimensionsVector = new THREE.Vector3(127 * 0.002, 5 * 0.002, 86 * 0.002);
 // Translation vector from the FBL corner
 const translationVector = new THREE.Vector3(4 * 0.002, 86.15 * 0.002, -8.5 * 0.002 - 86 * 0.002);
 
-const shiny_material = new THREE.MeshPhongMaterial( { 
+const shiny_material = new THREE.MeshPhongMaterial({ 
     color: 0x535353,
     specular: 0x050505,
     shininess: 100,
-} ) 
-
+});
 
 objLoader1.load('models/PLT_CAR_L5AC_A00.obj', (object) => {
     object.scale.set(2, 2, 2);
@@ -232,6 +324,8 @@ objLoader1.load('models/PLT_CAR_L5AC_A00.obj', (object) => {
         }
     });
 
+    // Set the object to the draggable layer
+    setAsDraggable(object);
 
     // Add the object to the scene
     const dragControls1 = new DragControls(draggableObjectsArray, camera, renderer.domElement);
@@ -253,11 +347,12 @@ objLoader1.load('models/PLT_CAR_L5AC_A00.obj', (object) => {
         wireframeMesh.userData.boundingBox = createBoundingBox(wireframeMesh);  // Assuming createBoundingBox is defined elsewhere
         object.children[0].add(wireframeMesh);  // Assuming the object has at least one child and it's safe to add to it
         wireframeMesh.visible = true;
-
+        
+        // Set the wireframe mesh to the snap target layer
+        setAsSnapTarget(wireframeMesh);
+        
         snapPlateTargetsArray.push(wireframeMesh);  // Assuming snapTargetsArray is defined elsewhere
     }
-    // Set position of the wireframe box
-    //wireframeMesh.position.copy(object.position).add(translationVector);
 
     // Add translated wireframe box with specific dimensions
     object.userData.resource_type = "carrier";
@@ -271,13 +366,6 @@ objLoader1.load('models/PLT_CAR_L5AC_A00.obj', (object) => {
 
     setupDragControls(dragControls1);
 });
-
-
-
-
-
-
-
 
 // Load the second OBJ file
 const objLoader2 = new OBJLoader();
@@ -295,6 +383,9 @@ for (let i = 0; i < numberOfInstances; i++) {
                 // child.userData.boundingBox = createBoundingBox(child);
             }
         });
+
+        // Set the object to the draggable layer
+        setAsDraggable(object);
 
         // Adjusting position to avoid overlap, e.g., spaced along the x-axis
         object.position.x = i * 0.1; // Space them out by 5 units along the x-axis
@@ -326,6 +417,8 @@ mtlLoader1.load('models/gripper.mtl', (materials) => {
         });
  */        object.rotation.y = 3*Math.PI / 2;
 
+        // Set the object to the draggable layer
+        setAsDraggable(object);
 
         // Add the object to the scene
         const dragControls1 = new DragControls(draggableObjectsArray, camera, renderer.domElement);
@@ -337,12 +430,12 @@ mtlLoader1.load('models/gripper.mtl', (materials) => {
         scene.add(object);
         draggableObjectsArray.push(object);
         //object.position.add(new THREE.Vector3(0, 0.1, 1));  // Translate the position by (0, -1, 0.1)
-        console.log("scene")
-        object.userData.boundingBox = createBoundingBox(object)
+        console.log("scene");
+        object.userData.boundingBox = createBoundingBox(object);
         //visualizeBox3(object.userData.boundingBox)
         //setupDragControls(dragControls1);
     });
-})
+});
 
 const mtlLoader4 = new MTLLoader();
 mtlLoader4.load('models/gripper.mtl', (materials) => {
@@ -359,6 +452,8 @@ mtlLoader4.load('models/gripper.mtl', (materials) => {
         });
  */        
 
+        // Set the object to the draggable layer
+        setAsDraggable(object);
 
         // Add the object to the scene
         const dragControls1 = new DragControls(draggableObjectsArray, camera, renderer.domElement);
@@ -370,13 +465,12 @@ mtlLoader4.load('models/gripper.mtl', (materials) => {
         scene.add(object);
         draggableObjectsArray.push(object);
         //object.position.add(new THREE.Vector3(0, 0.1, 1));  // Translate the position by (0, -1, 0.1)
-        console.log("scene")
-        object.userData.boundingBox = createBoundingBox(object)
+        console.log("scene");
+        object.userData.boundingBox = createBoundingBox(object);
         //visualizeBox3(object.userData.boundingBox)
         //setupDragControls(dragControls1);
     });
-})
-
+});
 
 // Add OrbitControls
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -403,8 +497,8 @@ const animate = () => {
     if (!isDraggingObject) {
         controls.update();
     }
-    updateBoundingBoxes()
-
+    updateBoundingBoxes();
+    updatePositionReadouts();
 
     renderer.render(scene, camera);
 };
