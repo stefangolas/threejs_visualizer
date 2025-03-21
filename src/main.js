@@ -12,10 +12,11 @@ const SNAP_TARGET_LAYER = 1;
 
 // Create scene
 const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a1a); // Dark background for better contrast
 
 // Create camera
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(0, 5, 10);
+camera.position.set(0, 8, 5);
 camera.lookAt(scene.position);
 scene.add(camera);
 
@@ -62,22 +63,83 @@ function updatePositionReadouts() {
         box.getCenter(center);
         readoutContainer.innerHTML += `Target ${index}: (${center.x.toFixed(3)}, ${center.y.toFixed(3)}, ${center.z.toFixed(3)})<br>`;
     });
+
+    // Add grid visualization positions
+    if (currentGridVisualization) {
+        readoutContainer.innerHTML += '<h4>Grid Visualization:</h4>';
+        
+        // Get grid global position
+        const gridGlobalPos = new THREE.Vector3();
+        currentGridVisualization.getWorldPosition(gridGlobalPos);
+        readoutContainer.innerHTML += `Global Position: (${gridGlobalPos.x.toFixed(3)}, ${gridGlobalPos.y.toFixed(3)}, ${gridGlobalPos.z.toFixed(3)})<br>`;
+        
+        // Get grid local position
+        const gridLocalPos = currentGridVisualization.position;
+        readoutContainer.innerHTML += `Local Position: (${gridLocalPos.x.toFixed(3)}, ${gridLocalPos.y.toFixed(3)}, ${gridLocalPos.z.toFixed(3)})<br>`;
+        
+        // Get parent plate position
+        const parentPlate = currentGridVisualization.parent;
+        if (parentPlate) {
+            const plateWorldPos = new THREE.Vector3();
+            parentPlate.getWorldPosition(plateWorldPos);
+            readoutContainer.innerHTML += `Parent Plate Position: (${plateWorldPos.x.toFixed(3)}, ${plateWorldPos.y.toFixed(3)}, ${plateWorldPos.z.toFixed(3)})<br>`;
+            
+            // Calculate offset from parent plate
+            const offset = new THREE.Vector3().subVectors(gridGlobalPos, plateWorldPos);
+            readoutContainer.innerHTML += `Offset from Parent: (${offset.x.toFixed(3)}, ${offset.y.toFixed(3)}, ${offset.z.toFixed(3)})<br>`;
+        }
+    }
+}
+
+// Store circle grid configuration
+const gridConfig = {
+    rows: 8,
+    cols: 12,
+    x_offset: -0.005,
+    z_offset: 0.004,
+    y_offset: 0.02,
+    radius: 3.25 * 0.004,
+    spacing: 9.5 * 0.004,
+    positions: []
+};
+
+// Calculate and store circle positions
+for (let row = 0; row < gridConfig.rows; row++) {
+    for (let col = 0; col < gridConfig.cols; col++) {
+        gridConfig.positions.push({
+            x: (col - (gridConfig.cols - 1) / 2) * gridConfig.spacing + gridConfig.x_offset,
+            z: (row - (gridConfig.rows - 1) / 2) * gridConfig.spacing + gridConfig.z_offset,
+            y: gridConfig.y_offset
+        });
+    }
+}
+
+let currentGridVisualization = null;
+
+
+// Function to remove current grid visualization
+function removeGridVisualization() {
+    if (currentGridVisualization) {
+        // Remove from parent plate instead of scene
+        if (currentGridVisualization.parent) {
+            currentGridVisualization.parent.remove(currentGridVisualization);
+        }
+        currentGridVisualization = null;
+    }
 }
 
 // Create lights
-const ambientLight = new THREE.AmbientLight(0x404040, 0.5); // Reduced intensity for better contrast
+const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
 scene.add(ambientLight);
 
-const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0); // Increased intensity
+const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
 directionalLight.position.set(1, 1, 1).normalize();
 scene.add(directionalLight);
 
-// Add a second directional light from another angle for better highlights
 const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.7);
 directionalLight2.position.set(-1, 0.5, -1).normalize();
 scene.add(directionalLight2);
 
-// Add a point light for more dynamic lighting
 const pointLight = new THREE.PointLight(0xffffff, 0.5);
 pointLight.position.set(0, 5, 0);
 scene.add(pointLight);
@@ -89,17 +151,6 @@ directionalLight.castShadow = true;
 
 // Create an array to hold draggable objects
 const draggableObjects = [];
-
-// Helper function to create a bounding box
-/* function createBoundingBox(object) {
-    const boundingBox = new THREE.BoxHelper(object, 0xffff00); // Yellow color
-    boundingBox.visible = true;
-
-    object.add(boundingBox);
-    
-    return boundingBox;
-}
- */
 
 var draggableObjectsArray = [];
 var snapPlateTargetsArray = [];
@@ -132,7 +183,7 @@ let isDraggingObject = false;
 // Create a box geometry with dimensions x = 127, y = 86, z = 20
 const boundingBoxGeometry = new THREE.BoxGeometry(127 * 0.004, 20 * 0.004, 86 * 0.004);
 
-const boundingBoxMaterial = new THREE.LineBasicMaterial({ color: 0xffffff }); // White color
+const boundingBoxMaterial = new THREE.LineBasicMaterial({ color: 0xffffff });
 const box3 = new THREE.LineSegments(new THREE.EdgesGeometry(boundingBoxGeometry), boundingBoxMaterial);
 
 function createBoundingBox(mesh) {
@@ -141,37 +192,27 @@ function createBoundingBox(mesh) {
 }
 
 function checkIntersectionAndSnap(draggableObj) {
-    // Skip if this isn't a draggable object with a parent
     if (!draggableObj.parent) return;
     
-    // Get the resource type
     const resourceType = draggableObj.parent.userData.resource_type;
     if (!resourceType) return;
     
-    // Create a bounding box for the draggable object
     const draggableBox = new THREE.Box3().setFromObject(draggableObj.parent);
-    
-    // Find all intersecting targets
     const intersectingTargets = [];
     
-    // Choose the appropriate target array based on resource type
     const targetArray = resourceType === "plate" ? snapPlateTargetsArray : 
                         resourceType === "carrier" ? snapCarrierTargetsArray : [];
     
-    // Find all intersecting targets and calculate distances
     targetArray.forEach(target => {
-        // Get the target's world position by creating a bounding box
         const targetBox = createBoundingBox(target);
         
         if (draggableBox.intersectsBox(targetBox)) {
-            // Calculate centers
             const targetCenter = new THREE.Vector3();
             const draggableCenter = new THREE.Vector3();
             
             targetBox.getCenter(targetCenter);
             draggableBox.getCenter(draggableCenter);
             
-            // Calculate distance between centers
             const distance = targetCenter.distanceTo(draggableCenter);
             
             intersectingTargets.push({
@@ -182,78 +223,51 @@ function checkIntersectionAndSnap(draggableObj) {
         }
     });
     
-    // If we found intersecting targets, snap to the closest one
     if (intersectingTargets.length > 0) {
-        // Sort by distance (closest first)
         intersectingTargets.sort((a, b) => a.distance - b.distance);
-        
-        // Get the closest target
         const closestTarget = intersectingTargets[0];
         
-        // Store reference to the snap target
         draggableObj.parent.userData.snapTarget = closestTarget.target;
         
-        // Get draggable center
         const draggableCenter = new THREE.Vector3();
         draggableBox.getCenter(draggableCenter);
         
-        // Calculate precise world position difference
         const worldOffset = new THREE.Vector3().subVectors(closestTarget.center, draggableCenter);
-        
-        // Apply offset to draggable object's world position
         draggableObj.parent.position.add(worldOffset);
         
-        // If this is a plate snapping to a carrier target, store the carrier reference
         if (resourceType === "plate" && closestTarget.target.parent && 
             closestTarget.target.parent.parent && 
             closestTarget.target.parent.parent.userData.resource_type === "carrier") {
             
-            // Get the carrier object (parent of the target)
             const carrier = closestTarget.target.parent.parent;
             
-            // Store the carrier reference and target on the plate
             draggableObj.parent.userData.attachedToCarrier = carrier;
             draggableObj.parent.userData.attachedToTarget = closestTarget.target;
             
-            // Calculate and store the offset between the plate and the target
             const targetWorldPos = new THREE.Vector3();
             closestTarget.target.getWorldPosition(targetWorldPos);
             
             const plateWorldPos = new THREE.Vector3();
             draggableObj.parent.getWorldPosition(plateWorldPos);
             
-            // Store the initial offset
             draggableObj.parent.userData.targetOffset = new THREE.Vector3().subVectors(plateWorldPos, targetWorldPos);
             
             console.log("Plate attached to carrier");
         }
         
-        // Log the snap for debugging
         console.log(`Snapped ${resourceType} to target. Distance: ${closestTarget.distance.toFixed(4)}`);
-        console.log(`Target center: (${closestTarget.center.x.toFixed(3)}, ${closestTarget.center.y.toFixed(3)}, ${closestTarget.center.z.toFixed(3)})`);
-        console.log(`Object center before snap: (${draggableCenter.x.toFixed(3)}, ${draggableCenter.y.toFixed(3)}, ${draggableCenter.z.toFixed(3)})`);
-        
-        // Verify final position
-        const finalBox = new THREE.Box3().setFromObject(draggableObj.parent);
-        const finalCenter = new THREE.Vector3();
-        finalBox.getCenter(finalCenter);
-        console.log(`Object center after snap: (${finalCenter.x.toFixed(3)}, ${finalCenter.y.toFixed(3)}, ${finalCenter.z.toFixed(3)})`);
     }
 }
 
 function checkNonIntersectionAndDetach(draggableObj) {
-    // If the object has a snap target, check if it's still intersecting
     if (draggableObj.parent.userData.snapTarget) {
         const draggableBox = new THREE.Box3().setFromObject(draggableObj);
         const targetBox = createBoundingBox(draggableObj.parent.userData.snapTarget);
         
-        // If no longer intersecting, clear the snap target reference
         if (!draggableBox.intersectsBox(targetBox)) {
-            // If this is a plate attached to a carrier, clear the references
             if (draggableObj.parent.userData.resource_type === "plate" && 
                 draggableObj.parent.userData.attachedToCarrier) {
                 
-                // Clear the carrier and target references
                 draggableObj.parent.userData.attachedToCarrier = null;
                 draggableObj.parent.userData.attachedToTarget = null;
                 draggableObj.parent.userData.targetOffset = null;
@@ -268,33 +282,49 @@ function checkNonIntersectionAndDetach(draggableObj) {
 }
 
 function setupDragControls(dragControls) {
-    // Only allow dragging objects on the draggable layer
     dragControls.addEventListener('hoveron', function(event) {
-        // Check if the object is in a snap target array or on the snap target layer
         if (event.object.layers.test(new THREE.Layers().set(SNAP_TARGET_LAYER)) ||
             snapPlateTargetsArray.includes(event.object) || 
             snapCarrierTargetsArray.includes(event.object)) {
-            // Prevent dragging by setting the enabled property temporarily
             dragControls.enabled = false;
         }
     });
 
     dragControls.addEventListener('hoveroff', function() {
-        // Re-enable drag controls
         dragControls.enabled = true;
     });
 
     dragControls.addEventListener('dragstart', function (event) {
+        console.log("DragStart:", event.object);
+
         controls.enabled = false;
-        event.object.material.opacity = 0.5; // Optional: make the object semi-transparent when dragging
-    });
+        event.object.material.opacity = 0.5;
+        removeGridVisualization();
+        currentGridVisualization = createGridVisualizationFromMesh(event.object);
+            });
 
     dragControls.addEventListener('dragend', function (event) {
         controls.enabled = true;
-        event.object.material.opacity = 1.0; // Restore opacity after dragging
+        event.object.material.opacity = 1.0;
         
         checkNonIntersectionAndDetach(event.object);
         checkIntersectionAndSnap(event.object);
+
+    // Create new grid visualization after drag
+    if (event.object.parent && event.object.parent.userData.resource_type === "plate") {
+        // Grid is already added as child of plate, no need to add to scene
+        
+        // Log positions for debugging
+        const gridWorldPos = new THREE.Vector3();
+        //currentGridVisualization.getWorldPosition(gridWorldPos);
+        const plateWorldPos = new THREE.Vector3();
+        event.object.parent.getWorldPosition(plateWorldPos);
+        console.log('Grid World Position:', gridWorldPos);
+        console.log('Plate World Position:', plateWorldPos);
+        removeGridVisualization();
+        currentGridVisualization = createGridVisualizationFromMesh(event.object);
+
+    }
     });
 }
 
@@ -303,31 +333,25 @@ const mtlLoader = new MTLLoader();
 mtlLoader.load('models/deck3.mtl', (materials) => {
     materials.preload();
 
-    // Load OBJ file with materials
     const objLoader = new OBJLoader();
     objLoader.setMaterials(materials);
     objLoader.load('models/deck3.obj', (object) => {
-        object.scale.set(2, 2, 2); // Scale the model uniformly
+        object.scale.set(2, 2, 2);
         object.rotation.y = Math.PI;
 
-        // Set the object to the draggable layer
         setAsDraggable(object);
 
         scene.add(object);
         draggableObjects.push(object);
 
-        // Wait for the model to be added to the scene
         object.updateMatrixWorld(true);
 
-        // Compute the bounding box of the loaded object
         const boundingBox = new THREE.Box3().setFromObject(object);
         const size = new THREE.Vector3();
         boundingBox.getSize(size);
 
-        // The height of each wireframe box above the model
         const heightPerBox = size.x / 5;
 
-        // Create wireframe boxes
         for (let i = 0; i < 5; i++) {
             const wireframeGeometry = new THREE.BoxGeometry(heightPerBox * 0.1, size.y / 2, size.z);
             const wireframeMaterial = new THREE.MeshBasicMaterial({
@@ -338,12 +362,10 @@ mtlLoader.load('models/deck3.mtl', (materials) => {
             });
             const wireframeBox = new THREE.Mesh(wireframeGeometry, wireframeMaterial);
 
-            // Position the boxes above the model, dividing the space equally along the z-axis
             wireframeBox.position.z = boundingBox.getCenter(new THREE.Vector3()).z;
             wireframeBox.position.y = boundingBox.getCenter(new THREE.Vector3()).y + size.y / 2 + 95 * 0.002;
             wireframeBox.position.x = boundingBox.max.x + heightPerBox * (i + 0.5) - size.x;
             
-            // Set the wireframe box to the snap target layer
             setAsSnapTarget(wireframeBox);
             
             snapCarrierTargetsArray.push(wireframeBox);
@@ -353,16 +375,10 @@ mtlLoader.load('models/deck3.mtl', (materials) => {
 });
 
 const objLoader1 = new OBJLoader();
-//const axesHelper = new THREE.AxesHelper(5); // The size can be adjusted to fit your scene scale
-//scene.add(axesHelper);
 
-// Dimensions for the wireframe box
 const dimensionsVector = new THREE.Vector3(127 * 0.002, 5 * 0.002, 86 * 0.002);
-
-// Translation vector from the FBL corner
 const translationVector = new THREE.Vector3(4 * 0.002, 86.15 * 0.002, -8.5 * 0.002 - 86 * 0.002);
 
-// Material definitions for different surface types
 const metalMaterial = new THREE.MeshStandardMaterial({ 
     color: 0x888888,
     metalness: 0.9,
@@ -393,47 +409,79 @@ const glassMaterial = new THREE.MeshPhysicalMaterial({
     opacity: 0.3
 });
 
-// Create a simple environment map for reflections
 const envMapSize = 256;
 const envMapRenderTarget = new THREE.WebGLCubeRenderTarget(envMapSize);
 const envMapCamera = new THREE.CubeCamera(0.1, 1000, envMapRenderTarget);
 scene.add(envMapCamera);
 
-// Create a simple scene for the environment map
 const envScene = new THREE.Scene();
 envScene.background = new THREE.Color(0x444444);
 
-// Add some simple objects to the environment scene for reflections
 const envSphereGeometry = new THREE.SphereGeometry(100, 16, 16);
 const envSphereMaterial = new THREE.MeshBasicMaterial({ color: 0x888888 });
 const envSphere = new THREE.Mesh(envSphereGeometry, envSphereMaterial);
 envScene.add(envSphere);
 
-// Update the environment map once
 envMapCamera.update(renderer, envScene);
-
-// Set the environment map for the scene
 scene.environment = envMapRenderTarget.texture;
+
+function createGridVisualizationFromMesh(mesh) {
+    if (!mesh) return null;
+
+    // 1. Update transforms so we get fresh world positions
+    mesh.updateMatrixWorld(true);
+
+    // 2. Compute the bounding box center of the mesh in world space
+    const box = new THREE.Box3().setFromObject(mesh);
+    const center = new THREE.Vector3();
+    box.getCenter(center); // World-space center of the mesh
+
+    // 3. Create the grid group at that world position
+    const gridGroup = new THREE.Group();
+    gridGroup.position.copy(center);
+
+    const circleGeometry = new THREE.CircleGeometry(gridConfig.radius, 32);
+    const circleMaterial = new THREE.MeshPhysicalMaterial({
+        color: 0x4287f5,
+        metalness: 0.4,
+        roughness: 0.2,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.9,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.1
+    });
+
+    gridConfig.positions.forEach(pos => {
+        const circle = new THREE.Mesh(circleGeometry, circleMaterial);
+        circle.position.set(pos.x, pos.y, pos.z);
+        circle.rotation.x = -Math.PI / 2;
+        gridGroup.add(circle);
+    });
+
+    // 4. Add the grid directly to the scene (not as a child of the mesh)
+    scene.add(gridGroup);
+
+    return gridGroup;
+}
+
 
 objLoader1.load('models/PLT_CAR_L5AC_A00.obj', (object) => {
     object.scale.set(2, 2, 2);
 
     object.traverse((child) => {
         if (child instanceof THREE.Mesh) {
-            // Apply metal material to the carrier
             child.material = metalMaterial;
             child.castShadow = true;
             child.receiveShadow = true;
         }
     });
 
-    // Set the object to the draggable layer
     setAsDraggable(object);
 
-    // Add the object to the scene
     const dragControls1 = new DragControls(draggableObjectsArray, camera, renderer.domElement);
     controls.recursive = false;
-    const incrementZ = -96 * 0.002;  // Calculate the increment value outside the loop for efficiency
+    const incrementZ = -96 * 0.002;
 
     for (let i = 0; i < 5; i++) {
         const wireframeGeometry = new THREE.BoxGeometry(dimensionsVector.x, dimensionsVector.y, dimensionsVector.z);
@@ -442,42 +490,31 @@ objLoader1.load('models/PLT_CAR_L5AC_A00.obj', (object) => {
         const halfDimensions = new THREE.Vector3(dimensionsVector.x / 2, dimensionsVector.y / 2, dimensionsVector.z / 2);
         const finalTranslation = new THREE.Vector3().addVectors(translationVector, halfDimensions);
 
-        // Modify the z-coordinate of finalTranslation by the increment multiplied by the iteration index
         finalTranslation.z += incrementZ * i;
 
-        // Set position of the wireframe box
         wireframeMesh.position.copy(object.position).add(finalTranslation);
-        wireframeMesh.userData.boundingBox = createBoundingBox(wireframeMesh);  // Assuming createBoundingBox is defined elsewhere
-        object.children[0].add(wireframeMesh);  // Assuming the object has at least one child and it's safe to add to it
+        wireframeMesh.userData.boundingBox = createBoundingBox(wireframeMesh);
+        object.children[0].add(wireframeMesh);
         wireframeMesh.visible = true;
         
-        // Set the wireframe mesh to the snap target layer
         setAsSnapTarget(wireframeMesh);
-        
-        snapPlateTargetsArray.push(wireframeMesh);  // Assuming snapTargetsArray is defined elsewhere
+        snapPlateTargetsArray.push(wireframeMesh);
     }
 
-    // Add translated wireframe box with specific dimensions
     object.userData.resource_type = "carrier";
 
-    // For draggable functionality, ensure only the main object is draggable
-    //console.log(object)
-    // Setup drag controls
     scene.add(object);
     draggableObjectsArray.push(object);
-    object.position.add(new THREE.Vector3(0, 0.1, 1));  // Translate the position by (0, -1, 0.1)
+    object.position.add(new THREE.Vector3(0, 0.1, 1));
 
     setupDragControls(dragControls1);
 });
 
-// Load the second OBJ file
 const objLoader2 = new OBJLoader();
-const numberOfInstances = 5; // Define the number of instances you want to load
+const numberOfInstances = 5;
 
-// Create a plate material with a slight variation for each instance
 const createPlateMaterial = (index) => {
-    // Vary the color slightly for each plate
-    const hue = 0.05 + (index * 0.02); // Slight hue variation
+    const hue = 0.05 + (index * 0.02);
     const color = new THREE.Color().setHSL(hue, 0.8, 0.7);
     
     return new THREE.MeshPhysicalMaterial({ 
@@ -495,7 +532,6 @@ for (let i = 0; i < numberOfInstances; i++) {
     objLoader2.load('models/plate.obj', (object) => {
         object.scale.set(2, 2, 2);
 
-        // Apply custom material with slight variations
         const plateMaterial = createPlateMaterial(i);
         
         object.traverse((child) => {
@@ -506,34 +542,23 @@ for (let i = 0; i < numberOfInstances; i++) {
             }
         });
 
-        // Set the object to the draggable layer
         setAsDraggable(object);
-
-        // Adjusting position to avoid overlap, e.g., spaced along the x-axis
-        object.position.x = i * 0.1; // Space them out by 5 units along the x-axis
-
-        console.log("User data:");
-        //console.log(object.userData);
+        object.position.x = i * 0.1;
         object.userData.resource_type = "plate";
-        //console.log(object.userData);
-        //console.log(object);
+        object.userData.gridConfig = { ...gridConfig };
 
         draggableObjectsArray.push(object);
         scene.add(object);
-        object.userData.boundingBox = createBoundingBox(object); // Calculate and store the bounding box if createBoundingBox is defined
+        object.userData.boundingBox = createBoundingBox(object);
     });
 }
 
-// Gripper and transfer station removed as requested
-
-// Add OrbitControls
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.25;
 controls.screenSpacePanning = false;
 controls.maxPolarAngle = Math.PI / 2;
 
-// Handle window resize
 window.addEventListener('resize', () => {
     const newWidth = window.innerWidth;
     const newHeight = window.innerHeight;
@@ -544,7 +569,6 @@ window.addEventListener('resize', () => {
     renderer.setSize(newWidth, newHeight);
 });
 
-// Animation loop
 const animate = () => {
     requestAnimationFrame(animate);
 
@@ -552,27 +576,22 @@ const animate = () => {
         controls.update();
     }
     
-    // Update positions of plates attached to carriers
     scene.children.forEach(obj => {
         if (obj.userData.resource_type === "plate" && 
             obj.userData.attachedToCarrier && 
             obj.userData.attachedToTarget) {
             
-            // Get the world position of the target
             const targetWorldPos = new THREE.Vector3();
             obj.userData.attachedToTarget.getWorldPosition(targetWorldPos);
             
-            // If there's a stored offset, apply it
             if (obj.userData.targetOffset) {
                 obj.position.copy(targetWorldPos).add(obj.userData.targetOffset);
             } else {
-                // Otherwise just match the target position
                 obj.position.copy(targetWorldPos);
             }
         }
     });
     
-    // Rotate the point light to create dynamic lighting effects
     const time = Date.now() * 0.001;
     pointLight.position.x = Math.sin(time) * 5;
     pointLight.position.z = Math.cos(time) * 5;
@@ -583,5 +602,4 @@ const animate = () => {
     renderer.render(scene, camera);
 };
 
-// Start the animation loop
 animate();
