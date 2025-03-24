@@ -12,7 +12,45 @@ const SNAP_TARGET_LAYER = 1;
 
 // Create scene
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1a1a1a); // Dark background for better contrast
+scene.background = new THREE.Color(0x1a1a1a);
+
+// Create a small bright sphere
+const sphereGeometry = new THREE.SphereGeometry(0.1, 32, 32);
+const sphereMaterial = new THREE.MeshBasicMaterial({ 
+    color: 0xffffff,
+    emissive: 0xffffff,
+    emissiveIntensity: 1
+});
+const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+sphere.position.set(0, 2, 0); // Start above the scene
+scene.add(sphere);
+
+// Variables for animation
+let isAnimating = false;
+let targetPosition = new THREE.Vector3();
+const animationSpeed = 0.1;
+
+// Click event handler
+window.addEventListener('click', (event) => {
+    // Convert click to normalized device coordinates
+    const mouse = new THREE.Vector2(
+        (event.clientX / window.innerWidth) * 2 - 1,
+        -(event.clientY / window.innerHeight) * 2 + 1
+    );
+
+    // Raycaster for converting 2D click to 3D position
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(mouse, camera);
+
+    // Get intersection with an invisible plane at y=0
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const intersectionPoint = new THREE.Vector3();
+    raycaster.ray.intersectPlane(plane, intersectionPoint);
+
+    // Set target position and start animation
+    targetPosition.copy(intersectionPoint);
+    isAnimating = true;
+});
 
 // Create camera
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -115,7 +153,6 @@ for (let row = 0; row < gridConfig.rows; row++) {
 }
 
 let currentGridVisualization = null;
-
 
 // Function to remove current grid visualization
 function removeGridVisualization() {
@@ -301,7 +338,7 @@ function setupDragControls(dragControls) {
         event.object.material.opacity = 0.5;
         removeGridVisualization();
         currentGridVisualization = createGridVisualizationFromMesh(event.object);
-            });
+    });
 
     dragControls.addEventListener('dragend', function (event) {
         controls.enabled = true;
@@ -310,21 +347,20 @@ function setupDragControls(dragControls) {
         checkNonIntersectionAndDetach(event.object);
         checkIntersectionAndSnap(event.object);
 
-    // Create new grid visualization after drag
-    if (event.object.parent && event.object.parent.userData.resource_type === "plate") {
-        // Grid is already added as child of plate, no need to add to scene
-        
-        // Log positions for debugging
-        const gridWorldPos = new THREE.Vector3();
-        //currentGridVisualization.getWorldPosition(gridWorldPos);
-        const plateWorldPos = new THREE.Vector3();
-        event.object.parent.getWorldPosition(plateWorldPos);
-        console.log('Grid World Position:', gridWorldPos);
-        console.log('Plate World Position:', plateWorldPos);
-        removeGridVisualization();
-        currentGridVisualization = createGridVisualizationFromMesh(event.object);
-
-    }
+        // Create new grid visualization after drag
+        if (event.object.parent && event.object.parent.userData.resource_type === "plate") {
+            // Grid is already added as child of plate, no need to add to scene
+            
+            // Log positions for debugging
+            const gridWorldPos = new THREE.Vector3();
+            //currentGridVisualization.getWorldPosition(gridWorldPos);
+            const plateWorldPos = new THREE.Vector3();
+            event.object.parent.getWorldPosition(plateWorldPos);
+            console.log('Grid World Position:', gridWorldPos);
+            console.log('Plate World Position:', plateWorldPos);
+            removeGridVisualization();
+            currentGridVisualization = createGridVisualizationFromMesh(event.object);
+        }
     });
 }
 
@@ -465,7 +501,6 @@ function createGridVisualizationFromMesh(mesh) {
     return gridGroup;
 }
 
-
 objLoader1.load('models/PLT_CAR_L5AC_A00.obj', (object) => {
     object.scale.set(2, 2, 2);
 
@@ -574,6 +609,20 @@ const animate = () => {
 
     if (!isDraggingObject) {
         controls.update();
+    }
+    
+    // Animate sphere movement
+    if (isAnimating) {
+        // Calculate direction and distance
+        const direction = targetPosition.clone().sub(sphere.position);
+        const distance = direction.length();
+        
+        if (distance > 0.01) {
+            // Move towards target
+            sphere.position.lerp(targetPosition, animationSpeed);
+        } else {
+            isAnimating = false;
+        }
     }
     
     scene.children.forEach(obj => {
