@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Model Loader</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+        #model-options {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 100;
+        }
+    </style>
+  <script type="module" crossorigin src="/assets/index-DplT7DBi.js"></script>
+</head>
+<body>
+    <div id="model-options">
+        <button onclick="loadModel('models/plate_carrier.obj')">Plate Carrier</button>
+        <button onclick="loadModel('models/plate.obj')">Plate</button>
+    </div>
+</body>
+</html>
