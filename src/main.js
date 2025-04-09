@@ -23,7 +23,7 @@ const sphereMaterial = new THREE.MeshBasicMaterial({
 });
 const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
 sphere.position.set(0, 2, 0); // Start above the scene
-scene.add(sphere);
+//scene.add(sphere);
 
 // Variables for animation
 let isAnimating = false;
@@ -77,7 +77,7 @@ readoutContainer.style.borderRadius = '5px';
 readoutContainer.style.maxHeight = '300px';
 readoutContainer.style.overflowY = 'auto';
 readoutContainer.style.zIndex = '1000';
-document.body.appendChild(readoutContainer);
+//document.body.appendChild(readoutContainer);
 
 // Function to update position readouts
 function updatePositionReadouts() {
@@ -337,7 +337,7 @@ function setupDragControls(dragControls) {
         controls.enabled = false;
         event.object.material.opacity = 0.5;
         removeGridVisualization();
-        currentGridVisualization = createGridVisualizationFromMesh(event.object);
+        //currentGridVisualization = createGridVisualizationFromMesh(event.object);
     });
 
     dragControls.addEventListener('dragend', function (event) {
@@ -359,19 +359,21 @@ function setupDragControls(dragControls) {
             console.log('Grid World Position:', gridWorldPos);
             console.log('Plate World Position:', plateWorldPos);
             removeGridVisualization();
-            currentGridVisualization = createGridVisualizationFromMesh(event.object);
+            //currentGridVisualization = createGridVisualizationFromMesh(event.object);
         }
     });
 }
 
 // Load MTL file
 const mtlLoader = new MTLLoader();
-mtlLoader.load('models/deck3.mtl', (materials) => {
+const modelPath = new URL('../models/deck3.mtl', import.meta.url).href;
+mtlLoader.load(modelPath, (materials) => {
     materials.preload();
 
     const objLoader = new OBJLoader();
     objLoader.setMaterials(materials);
-    objLoader.load('models/deck3.obj', (object) => {
+    const objPath = new URL('../models/deck3.obj', import.meta.url).href;
+    objLoader.load(objPath, (object) => {
         object.scale.set(2, 2, 2);
         object.rotation.y = Math.PI;
 
@@ -456,7 +458,7 @@ envScene.background = new THREE.Color(0x444444);
 const envSphereGeometry = new THREE.SphereGeometry(100, 16, 16);
 const envSphereMaterial = new THREE.MeshBasicMaterial({ color: 0x888888 });
 const envSphere = new THREE.Mesh(envSphereGeometry, envSphereMaterial);
-envScene.add(envSphere);
+//envScene.add(envSphere);
 
 envMapCamera.update(renderer, envScene);
 scene.environment = envMapRenderTarget.texture;
@@ -501,7 +503,7 @@ function createGridVisualizationFromMesh(mesh) {
     return gridGroup;
 }
 
-objLoader1.load('models/PLT_CAR_L5AC_A00.obj', (object) => {
+objLoader1.load(new URL('../models/PLT_CAR_L5AC_A00.obj', import.meta.url).href, (object) => {
     object.scale.set(2, 2, 2);
 
     object.traverse((child) => {
@@ -564,7 +566,7 @@ const createPlateMaterial = (index) => {
 };
 
 for (let i = 0; i < numberOfInstances; i++) {
-    objLoader2.load('models/plate.obj', (object) => {
+    objLoader2.load(new URL('../models/plate.obj', import.meta.url).href, (object) => {
         object.scale.set(2, 2, 2);
 
         const plateMaterial = createPlateMaterial(i);
