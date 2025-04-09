@@ -366,14 +366,12 @@ function setupDragControls(dragControls) {
 
 // Load MTL file
 const mtlLoader = new MTLLoader();
-const modelPath = new URL('../models/deck3.mtl', import.meta.url).href;
-mtlLoader.load(modelPath, (materials) => {
+mtlLoader.load('/models/deck3.mtl', (materials) => {
     materials.preload();
 
     const objLoader = new OBJLoader();
     objLoader.setMaterials(materials);
-    const objPath = new URL('../models/deck3.obj', import.meta.url).href;
-    objLoader.load(objPath, (object) => {
+    objLoader.load('/models/deck3.obj', (object) => {
         object.scale.set(2, 2, 2);
         object.rotation.y = Math.PI;
 
@@ -503,7 +501,7 @@ function createGridVisualizationFromMesh(mesh) {
     return gridGroup;
 }
 
-objLoader1.load(new URL('../models/PLT_CAR_L5AC_A00.obj', import.meta.url).href, (object) => {
+objLoader1.load('/models/PLT_CAR_L5AC_A00.obj', (object) => {
     object.scale.set(2, 2, 2);
 
     object.traverse((child) => {
@@ -566,7 +564,7 @@ const createPlateMaterial = (index) => {
 };
 
 for (let i = 0; i < numberOfInstances; i++) {
-    objLoader2.load(new URL('../models/plate.obj', import.meta.url).href, (object) => {
+    objLoader2.load('/models/plate.obj', (object) => {
         object.scale.set(2, 2, 2);
 
         const plateMaterial = createPlateMaterial(i);
