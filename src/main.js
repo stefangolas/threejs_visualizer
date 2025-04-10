@@ -366,12 +366,12 @@ function setupDragControls(dragControls) {
 
 // Load MTL file
 const mtlLoader = new MTLLoader();
-mtlLoader.load('/threejs_visualizer/models/deck3.mtl', (materials) => {
+mtlLoader.load('/models/deck3.mtl', (materials) => {
     materials.preload();
 
     const objLoader = new OBJLoader();
     objLoader.setMaterials(materials);
-    objLoader.load('/threejs_visualizer/models/deck3.obj', (object) => {
+    objLoader.load('/models/deck3.obj', (object) => {
         object.scale.set(2, 2, 2);
         object.rotation.y = Math.PI;
 
@@ -501,7 +501,7 @@ function createGridVisualizationFromMesh(mesh) {
     return gridGroup;
 }
 
-objLoader1.load('/threejs_visualizer/models/PLT_CAR_L5AC_A00.obj', (object) => {
+objLoader1.load('/models/PLT_CAR_L5AC_A00.obj', (object) => {
     object.scale.set(2, 2, 2);
 
     object.traverse((child) => {
@@ -564,7 +564,7 @@ const createPlateMaterial = (index) => {
 };
 
 for (let i = 0; i < numberOfInstances; i++) {
-    objLoader2.load('/threejs_visualizer/models/plate.obj', (object) => {
+    objLoader2.load('/models/plate.obj', (object) => {
         object.scale.set(2, 2, 2);
 
         const plateMaterial = createPlateMaterial(i);
