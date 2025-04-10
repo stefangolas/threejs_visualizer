@@ -578,7 +578,8 @@ for (let i = 0; i < numberOfInstances; i++) {
         });
 
         setAsDraggable(object);
-        object.position.x = i * 0.1;
+        object.position.x = -0.8;
+        object.position.z = i * 0.4 - 1.45;
         object.userData.resource_type = "plate";
         object.userData.gridConfig = { ...gridConfig };
 
